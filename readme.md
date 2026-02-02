@@ -91,10 +91,10 @@ sudo grubby --update-kernel=ALL --remove-args="mem_sleep_default=deep"
 sudo systemctl daemon-reload
 ```
 
+## Contributing
+
+Yes please!
+
 ## License
 
 Use at your own risk.
-
-## Author
-
-André Eikmeyer, Reken, Germany
