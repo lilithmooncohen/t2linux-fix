@@ -87,7 +87,6 @@ sudo rm /etc/systemd/system/suspend-wifi-unload.service
 sudo rm /etc/systemd/system/resume-wifi-reload.service
 sudo rm /etc/systemd/system/fix-kbd-backlight.service
 sudo rm /usr/local/bin/fix-kbd-backlight.sh
-sudo grubby --update-kernel=ALL --remove-args="mem_sleep_default=deep"
 sudo systemctl daemon-reload
 ```
 
