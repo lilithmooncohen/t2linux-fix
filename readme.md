@@ -16,12 +16,12 @@ Typically you will notice a screen still black when opening the lid for a few se
 1. Download the script:
 ```bash
 wget https://raw.githubusercontent.com/deqrocks/T2Linux-Suspend-Fix/refs/heads/main/t2-suspend-fix.sh
-chmod +x t2-fix-suspend.sh
+chmod +x t2-suspend-fix.sh
 ```
 
 2. Run the script:
 ```bash
-./t2-fix-suspend.sh
+./t2-suspend-fix.sh
 ```
 
 3. Reboot when prompted.
