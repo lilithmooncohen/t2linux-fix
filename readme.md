@@ -1,4 +1,4 @@
-# T2 MacBook Suspend Fix
+# T2Linux MacBook Suspend Fix
 
 This script configures your system to properly suspend and resume by managing the Broadcom WiFi driver and Apple BCE keyboard backlight driver. 
 It automatically detects your WiFi PCI bus ID and creates systemd services to handle driver unloading before suspend and reloading after resume.
