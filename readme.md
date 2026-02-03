@@ -28,17 +28,15 @@ chmod +x t2-suspend-fix.sh
 
 3. Reboot when prompted.
 
-## How It Works
+## Changes on your system
 
 The script performs the following actions:
 
 1. Detects the Broadcom WiFi card PCI bus ID
 2. Configures the system to use deep sleep mode
 3. Creates three systemd services
-4. Disables conflicting services (thermald)
-5. Adjusts ASPM settings if needed
-
-## Created Files
+4. Disables or removes conflicting services (thermald/override.conf)
+5. Adjusts ASPM settings to default if needed
 
 ### Systemd Services
 
@@ -68,7 +66,7 @@ Runs on boot and after resume to restore keyboard backlight:
 **`/usr/local/bin/fix-kbd-backlight.sh`**  
 Shell script called by the keyboard backlight service to handle driver reload logic.
 
-## System Changes
+### System Changes
 
 The script also modifies the following system settings:
 
@@ -91,6 +89,33 @@ sudo rm /etc/systemd/system/fix-kbd-backlight.service
 sudo rm /usr/local/bin/fix-kbd-backlight.sh
 sudo systemctl daemon-reload
 ```
+
+## Debugging
+
+Download debug-suspend.sh
+
+Make script executable:
+```
+chmod +x debug-suspend.sh
+```
+
+Execute BEFORE suspend:
+```
+./debug-suspend.sh
+```
+
+Then suspend and execute again AFTER suspend:
+```
+./debug-suspend.sh
+```
+
+The script will show you the output location of the log files like this:
+```
+=== Debug information collected ===
+Log saved to: /tmp/t2-suspend-debug-20260202-230441.log
+```
+
+Please post both log files when reporting issues.
 
 ## Contributing
 
