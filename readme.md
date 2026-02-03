@@ -4,7 +4,7 @@ This script configures your system to properly suspend and resume by managing th
 It automatically detects your WiFi PCI bus ID and creates systemd services to handle driver unloading before suspend and reloading after resume.
 Keyboard backlight not working on boot is also taken care of.
 
-Developed on MacBook Air A2179 with Fedora 43 (should work on other distros as well)
+I need Feedback. Please report if it's working for you or not by opening a GitHub issue. So far I can only confirm it works on Fedora 43 with MacBook Air 9,1 and MacBook Pro 16,1.
 
 ## Important Notes
 
