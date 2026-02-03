@@ -67,8 +67,17 @@ fi
 # Remove prior systemd fixes
 echo -e "\n${YELLOW}⚙${NC} Removing prior systemd fixes (if any)..."
 sudo systemctl disable suspend-fix-t2.service 2>/dev/null || true
-sudo systemctl daemon-reload
+sudo systemctl disable suspend-wifi-unload.service 2>/dev/null || true
+sudo systemctl disable resume-wifi-reload.service 2>/dev/null || true
+sudo systemctl disable fix-kbd-backlight.service 2>/dev/null || true
+
 sudo rm -f /etc/systemd/system/suspend-fix-t2.service
+sudo rm -f /etc/systemd/system/suspend-wifi-unload.service
+sudo rm -f /etc/systemd/system/resume-wifi-reload.service
+sudo rm -f /etc/systemd/system/fix-kbd-backlight.service
+sudo rm -f /etc/systemd/system/suspend-fix-t2.service
+
+sudo systemctl daemon-reload
 echo -e "${GREEN}Done${NC}"
 
 # Create systemd service that calls a script to reload the KBD backlight on boot and on resume
