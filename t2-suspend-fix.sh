@@ -148,17 +148,19 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 
 [Service]
 Type=oneshot
-# 1. Load BCE first
+# 1. Fix for A2251 rescan PCI bus to get WiFi out of D3cold
+ExecStart=/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'
+# 2. Load BCE first
 ExecStart=/usr/sbin/modprobe apple-bce
-# 2. Wait for device to be ready
+# 3. Wait for device to be ready
 ExecStart=/bin/sleep 1
-# 3. Force PCI-Bind
+# 4. Force PCI-Bind
 ExecStart=-/bin/sh -c 'echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/bind'
-# 4. Load driver
+# 5. Load driver
 ExecStart=/usr/sbin/modprobe brcmfmac
-# 5. Wait for driver initialization
+# 6. Wait for driver initialization
 ExecStart=/bin/sleep 2
-# 6. Activate WiFi again
+# 7. Activate WiFi again
 ExecStartPost=-/usr/bin/nmcli radio wifi on
 
 [Install]
