@@ -4,11 +4,12 @@ This script configures your system to properly suspend and resume by managing th
 It automatically detects your WiFi PCI bus ID and creates systemd services to handle driver unloading before suspend and reloading after resume.
 Keyboard backlight not working on boot is also taken care of.
 
-Developed on MacBook Air A2179 with Fedora 43 (should work on Debian and Ubuntu as well)
+Developed on MacBook Air A2179 with Fedora 43 (should work on other distros as well)
 
 ## Important Notes
 
-Close the lid to suspend! Don't use the power button or suspend from the menu!
+Close the lid to suspend! Don't use terminal, the power button or suspend from the menu!
+
 The system needs a bit more time to resume than you're used to from MacOS because it needs to re-initialize all bits and pieces we turned off to be able to make it sleep. But you can try shortening delays if your system is faster or making them longer if your system is slower.
 Typically you will notice a screen still black when opening the lid for a few seconds. Also the keyboard may be re-initialized while you typing your password. I recommend to just be patient and wait a few seconds or play with the "sleep" figures to make delays shorter. 
 
