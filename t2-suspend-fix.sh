@@ -76,7 +76,7 @@ echo -e "\n${YELLOW}⚙${NC} Creating KBD reload service..."
 sudo tee /etc/systemd/system/fix-kbd-backlight.service > /dev/null << 'EOF'
 [Unit]
 Description=Fix Apple BCE Keyboard Backlight
-After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+After=multi-user.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 
 [Service]
 Type=oneshot
@@ -85,7 +85,7 @@ User=root
 RemainAfterExit=yes
 
 [Install]
-WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+WantedBy=multi-user.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 EOF
 echo -e "${GREEN}Done${NC}"
 
@@ -165,6 +165,8 @@ ExecStart=/usr/sbin/modprobe brcmfmac
 ExecStart=/bin/sleep 2
 # 8. Activate WiFi again
 ExecStartPost=-/usr/bin/nmcli radio wifi on
+# 9. Activate keyboard backlight (needed for A2252)
+ExecStart=-/bin/sh -c 'echo 1000 > /sys/class/leds/:white:kbd_backlight/brightness'
 
 [Install]
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
