@@ -207,7 +207,7 @@ elif [ "$USE_GRUB_MKCONFIG" = true ]; then
             echo -e "${GREEN}mem_sleep_default=deep already configured${NC}"
         else
             # Add or update GRUB_CMDLINE_LINUX_DEFAULT
-            if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" "$GRUB_CONFIG"; then
+            if grep "^GRUB_CMDLINE_LINUX_DEFAULT=" "$GRUB_CONFIG" | grep -q "mem_sleep_default=deep"; then
                 # Append to existing line
                 sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 mem_sleep_default=deep"/' "$GRUB_CONFIG"
             else
