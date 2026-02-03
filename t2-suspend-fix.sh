@@ -80,7 +80,8 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/fix-kbd-backlight.sh
+ExecStart=/usr/bin/bash /usr/local/bin/fix-kbd-backlight.sh
+User=root
 RemainAfterExit=yes
 
 [Install]
@@ -93,8 +94,6 @@ echo -e "\n${YELLOW}⚙${NC} Creating keyboard backlight script..."
 sudo tee /usr/local/bin/fix-kbd-backlight.sh > /dev/null << 'EOF'
 #!/bin/sh
 # Keyboard backlight fix for apple-bce after resume
-
-sleep 4
 
 KBD_PATH="/sys/class/leds/:white:kbd_backlight/brightness"
 
@@ -133,6 +132,8 @@ ExecStart=-/usr/sbin/modprobe -r brcmfmac
 ExecStart=-/bin/sh -c 'echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/unbind'
 # 4. Apple BCE removal
 ExecStart=-/usr/sbin/rmmod -f apple-bce
+# 5. Remove PCI device completely from bus
+ExecStart=-/bin/sh -c 'echo 1 > /sys/bus/pci/devices/${WIFI_PCI_FULL}/remove'
 
 [Install]
 WantedBy=sleep.target
@@ -148,17 +149,21 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 
 [Service]
 Type=oneshot
-# 1. Load BCE first
+# 1. Rescan PCI bus to find device again
+ExecStart=/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'
+# 2. Wait for device to appear
+ExecStart=/bin/sleep 3
+# 3. Load BCE first
 ExecStart=/usr/sbin/modprobe apple-bce
-# 2. Wait for device to be ready
+# 4. Wait for BCE to initialize
 ExecStart=/bin/sleep 1
-# 3. Force PCI-Bind
+# 5. Force PCI-Bind (may fail, that's ok)
 ExecStart=-/bin/sh -c 'echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/bind'
-# 4. Load driver
+# 6. Load driver
 ExecStart=/usr/sbin/modprobe brcmfmac
-# 5. Wait for driver initialization
+# 7. Wait for driver initialization
 ExecStart=/bin/sleep 2
-# 6. Activate WiFi again
+# 8. Activate WiFi again
 ExecStartPost=-/usr/bin/nmcli radio wifi on
 
 [Install]
