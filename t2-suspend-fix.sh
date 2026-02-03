@@ -150,6 +150,7 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 Type=oneshot
 # 1. Fix for A2251 rescan PCI bus to get WiFi out of D3cold
 ExecStart=/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'
+ExecStart=/bin/sleep 2
 # 2. Load BCE first
 ExecStart=/usr/sbin/modprobe apple-bce
 # 3. Wait for device to be ready
