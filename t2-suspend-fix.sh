@@ -1,7 +1,6 @@
 #!/bin/bash
 
 # T2 MacBook Suspend Fix Installer
-# Automatically detects WiFi PCI bus ID and configures deep suspend
 # Use at your own risk!
 # André Eikmeyer, Reken, Germany - 02/02/2026
 
@@ -77,7 +76,7 @@ echo -e "\n${YELLOW}⚙${NC} Creating KBD reload service..."
 sudo tee /etc/systemd/system/fix-kbd-backlight.service > /dev/null << 'EOF'
 [Unit]
 Description=Fix Apple BCE Keyboard Backlight
-After=multi-user.target suspend.target
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 
 [Service]
 Type=oneshot
@@ -85,7 +84,7 @@ ExecStart=/usr/local/bin/fix-kbd-backlight.sh
 RemainAfterExit=yes
 
 [Install]
-WantedBy=graphical.target suspend.target
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 EOF
 echo -e "${GREEN}Done${NC}"
 
@@ -168,14 +167,11 @@ EOF
 echo -e "${GREEN}Done${NC}"
 
 # Activate services
-echo -e "\n${YELLOW}${NC} Activating services..."
+echo -e "\n${YELLOW}⚙${NC} Activating services..."
 sudo systemctl daemon-reload
 sudo systemctl enable suspend-wifi-unload.service
 sudo systemctl enable resume-wifi-reload.service
 sudo systemctl enable fix-kbd-backlight.service 
-sudo systemctl start suspend-wifi-unload.service
-sudo systemctl start resume-wifi-reload.service
-sudo systemctl start fix-kbd-backlight.service 
 echo -e "${GREEN}Done${NC}"
 
 # Configure deep suspend mode based on distribution
