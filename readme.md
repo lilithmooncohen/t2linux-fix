@@ -7,6 +7,7 @@ Keyboard backlight not working on boot is also taken care of.
 I need Feedback. Please report if it's working for you or not by opening a GitHub issue. So far I can confirm it works on 
 - Fedora 43 with MacBook Air and MacBook Pro 2020
 - Arch Linux with MacBook Pro 2019
+- Mint Cinnamon with MacBook Pro 2019
 
 ## Important Notes
 
