@@ -48,7 +48,7 @@ The script performs the following actions:
 1. Detects the Broadcom WiFi card PCI bus ID
 2. Configures the system to use deep sleep mode
 3. Creates three systemd services
-4. Disables or removes conflicting services (thermald/override.conf)
+4. Backups, Disables or removes conflicting services (thermald/override.conf)
 5. Adjusts ASPM settings to default if needed
 
 ### Systemd Services
@@ -86,22 +86,11 @@ The script also modifies the following system settings:
 - Sets `mem_sleep_default=deep` kernel parameter via grubby
 - Disables thermald service if present
 - Changes `pcie_aspm=off` to `pcie_aspm=default` if set
-- Removes systemd-suspend override.conf if present
+- Backups and removes systemd-suspend override.conf if present
 
 ## Uninstallation
 
-To remove the suspend fix:
-
-```bash
-sudo systemctl disable suspend-wifi-unload.service
-sudo systemctl disable resume-wifi-reload.service
-sudo systemctl disable fix-kbd-backlight.service
-sudo rm /etc/systemd/system/suspend-wifi-unload.service
-sudo rm /etc/systemd/system/resume-wifi-reload.service
-sudo rm /etc/systemd/system/fix-kbd-backlight.service
-sudo rm /usr/local/bin/fix-kbd-backlight.sh
-sudo systemctl daemon-reload
-```
+To remove the suspend fix run the script again and choose uninstall.
 
 ## Debugging
 
