@@ -10,13 +10,41 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
-VERSION="1.1.0"
+VERSION="1.2.0"
 
 BACKUP_DIR="/etc/t2-suspend-fix"
 THERMALD_STATE_FILE="${BACKUP_DIR}/thermald_enabled"
 GRUB_BACKUP="${BACKUP_DIR}/grub.bak"
 OVERRIDE_BACKUP="${BACKUP_DIR}/override.conf.bak"
 GRUBBY_STATE_FILE="${BACKUP_DIR}/grubby_state"
+WAKEUP_BACKUP="${BACKUP_DIR}/acpi_wakeup.bak"
+
+capture_acpi_wakeup_state() {
+    sudo mkdir -p "$BACKUP_DIR"
+    sudo sh -c "cat /proc/acpi/wakeup > '$WAKEUP_BACKUP'"
+}
+
+enable_all_s3_wakeup() {
+    while read -r dev sstate status _; do
+        [ "$dev" = "Device" ] && continue
+        [ "$sstate" != "S3" ] && continue
+        if [ "$status" = "*disabled" ]; then
+            sudo sh -c "echo $dev > /proc/acpi/wakeup"
+        fi
+    done < /proc/acpi/wakeup
+}
+
+restore_acpi_wakeup_state() {
+    [ -f "$WAKEUP_BACKUP" ] || return 0
+    while read -r dev _ desired_status _; do
+        [ "$dev" = "Device" ] && continue
+        current_status=$(awk -v d="$dev" '$1==d {print $3}' /proc/acpi/wakeup)
+        [ -z "$current_status" ] && continue
+        if [ "$current_status" != "$desired_status" ]; then
+            sudo sh -c "echo $dev > /proc/acpi/wakeup"
+        fi
+    done < "$WAKEUP_BACKUP"
+}
 
 echo -e "${GREEN}=== T2 MacBook Suspend Fix Installer v${VERSION} ===${NC}\n"
 
@@ -68,6 +96,8 @@ if [ "$MODE" = "uninstall" ]; then
     sudo rm -f /etc/systemd/system/resume-wifi-reload.service
     sudo rm -f /etc/systemd/system/fix-kbd-backlight.service
     sudo rm -f /usr/local/bin/fix-kbd-backlight.sh
+    sudo rm -f /usr/lib/systemd/system-sleep/t2-resync
+    sudo rm -f /usr/lib/systemd/system-sleep/90-t2-hibernate-test-brcmfmac.sh
     echo "  - Unit files and scripts removed."
 
     # Restore override.conf if backed up
@@ -116,6 +146,15 @@ if [ "$MODE" = "uninstall" ]; then
         fi
     else
         echo "  - No thermald state file found. Skipping."
+    fi
+
+    # Restore ACPI wake sources
+    if [ -f "$WAKEUP_BACKUP" ]; then
+        echo "  - Restoring ACPI wake sources..."
+        restore_acpi_wakeup_state
+        echo "  - ACPI wake sources restored."
+    else
+        echo "  - No ACPI wake backup found. Skipping."
     fi
 
     # Update GRUB if possible after restore
@@ -196,8 +235,14 @@ sudo rm -f /etc/systemd/system/suspend-wifi-unload.service
 sudo rm -f /etc/systemd/system/resume-wifi-reload.service
 sudo rm -f /etc/systemd/system/fix-kbd-backlight.service
 sudo rm -f /etc/systemd/system/suspend-fix-t2.service
+sudo rm -f /usr/lib/systemd/system-sleep/t2-resync
+sudo rm -f /usr/lib/systemd/system-sleep/90-t2-hibernate-test-brcmfmac.sh
 echo "  - Old unit files removed."
 
+# Enable all S3 wake sources (backup current state first)
+echo -e "\n${YELLOW}⚙${NC} Enabling all S3 wake sources..."
+capture_acpi_wakeup_state
+enable_all_s3_wakeup
 sudo systemctl daemon-reload
 echo -e "${GREEN}Done${NC}"
 
@@ -230,14 +275,25 @@ KBD_PATH="/sys/class/leds/:white:kbd_backlight/brightness"
 if [ -f "$KBD_PATH" ]; then
     echo 1000 > "$KBD_PATH" 2>/dev/null || true
 else
-    # Driver reset if path is missing
+    # Poll up to 10s before forcing a BCE reset to avoid login screen flutters
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        if [ -f "$KBD_PATH" ]; then
+            echo 1000 > "$KBD_PATH" 2>/dev/null && exit 0
+        fi
+        command -v brightnessctl >/dev/null 2>&1 && brightnessctl -rd :white:kbd_backlight >/dev/null 2>&1 && exit 0
+        sleep 1
+    done
+
+    # Driver reset if path is still missing
     rmmod -f apple-bce 2>/dev/null || true
-    sleep 2
     modprobe apple-bce
-    sleep 2
-    if [ -f "$KBD_PATH" ]; then
-        echo 1000 > "$KBD_PATH" 2>/dev/null || true
-    fi
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        if [ -f "$KBD_PATH" ]; then
+            echo 1000 > "$KBD_PATH" 2>/dev/null && exit 0
+        fi
+        command -v brightnessctl >/dev/null 2>&1 && brightnessctl -rd :white:kbd_backlight >/dev/null 2>&1 && exit 0
+        sleep 0.2
+    done
 fi
 EOF
 sudo chmod +x /usr/local/bin/fix-kbd-backlight.sh
@@ -284,25 +340,32 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 User=root
 Type=oneshot
 # 1. Rescan PCI bus to find device again
-ExecStart=/bin/sh -c 'echo 1 > /sys/bus/pci/rescan'
+ExecStart=/bin/sh -c 'echo "[resume] STEP1 rescan" >&2; echo 1 > /sys/bus/pci/rescan'
 # 2. Wait for device to appear
 ExecStart=/bin/sleep 0.5
 # 3. Load BCE first
 ExecStart=/usr/sbin/modprobe apple-bce
 # 4. Wait for BCE to initialize
 ExecStart=/bin/sleep 0.5
-# 5. Force PCI-Bind (may fail, that's ok)
-ExecStart=-/bin/sh -c 'echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/bind'
+# 5. Force PCI-Bind (guard; device may already be bound)
+ExecStart=-/bin/sh -c '\
+echo "[resume] STEP5 bind brcmfmac" >&2; \
+DEV="/sys/bus/pci/devices/${WIFI_PCI_FULL}"; \
+if [ -L "$DEV/driver" ] && readlink "$DEV/driver" | grep -q "/brcmfmac$"; then \
+  echo "[resume] STEP5 already bound to brcmfmac" >&2; \
+  exit 0; \
+fi; \
+echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/bind'
 # 6. Load driver
 ExecStart=/usr/sbin/modprobe brcmfmac
+# 6b. Load WCC plugin (depends on brcmfmac)
+ExecStart=/usr/sbin/modprobe brcmfmac_wcc
 # 7. Wait for driver initialization
 ExecStart=/bin/sleep 1
 # 8. Activate WiFi again
 ExecStartPost=-/usr/bin/nmcli radio wifi on
-# 9. Activate keyboard backlight (needed for A2252)
-ExecStart=-/bin/sh -c 'echo 1000 > /sys/class/leds/:white:kbd_backlight/brightness'
-# 10. Retry brightnessctl to ensure backlight control is restored
-ExecStartPost=/usr/bin/sh -lc 'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do brightnessctl -rd :white:kbd_backlight >/dev/null 2>&1 && exit 0; sleep 0.2; done; exit 0'
+# 9. Restore keyboard backlight on resume
+ExecStartPost=-/usr/local/bin/fix-kbd-backlight.sh
 
 [Install]
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
