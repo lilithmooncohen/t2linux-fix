@@ -69,7 +69,6 @@ Runs after resume to restore WiFi and BCE:
 
 **`/etc/systemd/system/fix-kbd-backlight.service`**  
 Runs on boot and after resume to restore keyboard backlight:
-- Waits 4 seconds for system stabilization
 - Checks if keyboard backlight path exists
 - Reloads apple-bce driver if needed
 - Sets keyboard backlight brightness
@@ -90,7 +89,7 @@ The script also modifies the following system settings:
 
 ## Uninstallation
 
-To remove the suspend fix run the script again and choose uninstall.
+To remove the suspend fix run the script again and choose the uninstall option.
 
 ## Debugging
 
