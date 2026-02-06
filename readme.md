@@ -13,9 +13,6 @@ Please open a GitHub issue even if it's working. So far I can only confirm it wo
 
 ## Important Notes / Known Issues
 
-- Close the lid to suspend! Don't use terminal, the power button or suspend from the menu! 
-Although all methods should work the same, your mileage can vary. Using the lid seems to be the safest bet. On my 2020 Air all methods work.
-
 - The system needs more time to resume than you're used to from MacOS because it needs to re-initialize all bits and pieces we turned off to be able to make it sleep. But you can try shortening delays if your system is faster or making them longer if your system is slower.
 - Typically you will notice a screen and keyboard still black when opening the lid for some few seconds. Sometimes even longer. It depends on your specific hardware config and distro
 - On faster machines, the keyboard may be re-initialized while you are typing your password. See below bullet point to work around that 
