@@ -312,16 +312,18 @@ User=root
 Type=oneshot
 # 1. Backlight off before suspend
 ExecStartPre=-/usr/bin/brightnessctl -sd :white:kbd_backlight set 0 -q
-# 2. Deactivate WiFi interface
+# 2. Force-unload Bluetooth (avoids long resume timeouts)
+ExecStart=-/usr/sbin/rmmod -f hci_bcm4377
+# 3. Deactivate WiFi interface
 ExecStart=-/usr/bin/nmcli radio wifi off
-# 3. Unload drivers (wcc first!)
+# 4. Unload drivers (wcc first!)
 ExecStart=-/usr/sbin/modprobe -r brcmfmac_wcc
 ExecStart=-/usr/sbin/modprobe -r brcmfmac
-# 4. Hard unbind of PCI-ID
+# 5. Hard unbind of PCI-ID
 ExecStart=-/bin/sh -c 'echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/unbind'
-# 5. Apple BCE removal
+# 6. Apple BCE removal
 ExecStart=-/usr/sbin/rmmod -f apple-bce
-# 6. Remove PCI device completely from bus
+# 7. Remove PCI device completely from bus
 ExecStart=-/bin/sh -c 'echo 1 > /sys/bus/pci/devices/${WIFI_PCI_FULL}/remove'
 
 [Install]
@@ -364,7 +366,9 @@ ExecStart=/usr/sbin/modprobe brcmfmac_wcc
 ExecStart=/bin/sleep 1
 # 8. Activate WiFi again
 ExecStartPost=-/usr/bin/nmcli radio wifi on
-# 9. Restore keyboard backlight on resume
+# 9. Reload Bluetooth
+ExecStartPost=-/usr/sbin/modprobe hci_bcm4377
+# 10. Restore keyboard backlight on resume
 ExecStartPost=-/usr/local/bin/fix-kbd-backlight.sh
 
 [Install]
@@ -462,18 +466,18 @@ else
     echo -e "${GREEN}thermald not found or not enabled${NC}"
 fi
 
-# Set ASPM to default
-echo -e "\n${YELLOW}⚙${NC} Setting ASPM to default..."
+# Set ASPM to off
+echo -e "\n${YELLOW}⚙${NC} Setting ASPM to off..."
 
 if [ "$USE_GRUBBY" = true ]; then
     if sudo grubby --info=ALL | grep -q "pcie_aspm=off"; then
-        echo "  - Changing pcie_aspm from off to default..."
-        sudo mkdir -p "$BACKUP_DIR"
-        sudo grubby --update-kernel=ALL --remove-args="pcie_aspm=off" --args="pcie_aspm=default"
-        echo "pcie_aspm_was_off=1" | sudo tee -a "$GRUBBY_STATE_FILE" > /dev/null
-        echo -e "${GREEN}Done${NC}"
+        echo -e "${GREEN}pcie_aspm already off${NC}"
     else
-        echo -e "${GREEN}pcie_aspm already correct${NC}"
+        echo "  - Setting pcie_aspm=off (removing other values)..."
+        sudo mkdir -p "$BACKUP_DIR"
+        sudo grubby --update-kernel=ALL --remove-args="pcie_aspm=default pcie_aspm=force" --args="pcie_aspm=off"
+        echo "pcie_aspm_was_off=0" | sudo tee -a "$GRUBBY_STATE_FILE" > /dev/null
+        echo -e "${GREEN}Done${NC}"
     fi
 elif [ "$USE_GRUB_MKCONFIG" = true ] || [ "$USE_GRUB_MKCONFIG_ARCH" = true ]; then
     GRUB_CONFIG="/etc/default/grub"
@@ -485,8 +489,20 @@ elif [ "$USE_GRUB_MKCONFIG" = true ] || [ "$USE_GRUB_MKCONFIG_ARCH" = true ]; th
             echo "  - Backed up GRUB config to $GRUB_BACKUP"
         fi
         if grep -q "pcie_aspm=off" "$GRUB_CONFIG"; then
-            echo "  - Removing pcie_aspm=off and adding pcie_aspm=default..."
-            sudo sed -i 's/pcie_aspm=off/pcie_aspm=default/g' "$GRUB_CONFIG"
+            echo -e "${GREEN}pcie_aspm already off${NC}"
+        else
+            echo "  - Forcing pcie_aspm=off (removing other values)..."
+            sudo sed -i 's/pcie_aspm=default/pcie_aspm=off/g' "$GRUB_CONFIG"
+            sudo sed -i 's/pcie_aspm=force/pcie_aspm=off/g' "$GRUB_CONFIG"
+            if ! grep -q "pcie_aspm=off" "$GRUB_CONFIG"; then
+                if grep -q "^GRUB_CMDLINE_LINUX_DEFAULT=" "$GRUB_CONFIG"; then
+                    sudo sed -i 's/^GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 pcie_aspm=off"/' "$GRUB_CONFIG"
+                elif grep -q "^GRUB_CMDLINE_LINUX=" "$GRUB_CONFIG"; then
+                    sudo sed -i 's/^GRUB_CMDLINE_LINUX="\(.*\)"/GRUB_CMDLINE_LINUX="\1 pcie_aspm=off"/' "$GRUB_CONFIG"
+                else
+                    echo 'GRUB_CMDLINE_LINUX_DEFAULT="pcie_aspm=off"' | sudo tee -a "$GRUB_CONFIG" > /dev/null
+                fi
+            fi
             if command -v update-grub &> /dev/null; then
                 sudo update-grub
                 echo -e "${GREEN}Done (using update-grub)${NC}"
@@ -500,8 +516,6 @@ elif [ "$USE_GRUB_MKCONFIG" = true ] || [ "$USE_GRUB_MKCONFIG_ARCH" = true ]; th
             else
                 echo -e "${YELLOW}Warning: No GRUB update tool found. Please update your bootloader manually.${NC}"
             fi
-        else
-            echo -e "${GREEN}pcie_aspm already correct${NC}"
         fi
     fi
 fi
