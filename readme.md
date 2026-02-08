@@ -13,11 +13,11 @@ Please open a GitHub issue even if it's working. So far I can only confirm it wo
 
 ## Important Notes / Known Issues
 
-- The system needs more time to resume than you're used to from MacOS because it needs to re-initialize all bits and pieces we turned off to be able to make it sleep. But you can try shortening delays if your system is faster or making them longer if your system is slower.
-- Typically you will notice a screen and keyboard still black when opening the lid for some few seconds. Sometimes even longer. It depends on your specific hardware config and distro
-- On faster machines, the keyboard may be re-initialized while you are typing your password. See below bullet point to work around that 
-- I recommend to just be patient and wait a few seconds or play with the "sleep" figures in the systemd services in the suspend install script to make delays shorter. The script was made for broad compatibility. We don't want to leave Intel Core I3 machines behind
-- The workaround isn't perfect and probably will never be. Though it works reliably, we know there is still some hardware/software blocking going on while waking up. Probably related to the apple-bce/VHCI/Audio patches. The T2 Linux team is still actively investigating the suspend issue and on the time of writing (February 2026), they had a major breakthrough. Keep in touch with the latest development on https://matrix.to/#/#space:t2linux.org
+- The system needs more time to resume than you're used to from MacOS. The script takes between 1.5 to 3 seconds to run through. The longest waiting times is userland initializing after the script.
+- Some systems don't work with the script yet. It's unclear if this is related to the specific hardware or distro.
+- There is an uninstall option when running the script. So if it doesn't work for your, just reboot and run it again. It will restore your previous settings and files.
+- Not that using powertop --auto-tune or any related script enabling/forcing ASPM will block "optimized" PCI devices from transitioning to D3 power state. Or in other words: If you want to enjoy working suspend, remove such scripts.
+
 
 ## Installation
 
@@ -46,7 +46,7 @@ The script performs the following actions:
 2. Configures the system to use deep sleep mode
 3. Creates three systemd services
 4. Backups, Disables or removes conflicting services (thermald/override.conf)
-5. Adjusts ASPM settings to default if needed
+5. Adjusts ASPM settings to off if needed
 
 ### Systemd Services
 
