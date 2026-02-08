@@ -10,7 +10,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
-VERSION="1.2.0"
+VERSION="1.3.0"
 
 BACKUP_DIR="/etc/t2-suspend-fix"
 THERMALD_STATE_FILE="${BACKUP_DIR}/thermald_enabled"
@@ -88,6 +88,8 @@ if [ "$MODE" = "uninstall" ]; then
     sudo systemctl disable suspend-wifi-unload.service 2>/dev/null || true
     sudo systemctl disable resume-wifi-reload.service 2>/dev/null || true
     sudo systemctl disable fix-kbd-backlight.service 2>/dev/null || true
+    sudo systemctl disable suspend-amdgpu-unbind.service 2>/dev/null || true
+    sudo systemctl disable resume-amdgpu-bind.service 2>/dev/null || true
     echo "  - Services disabled."
 
     echo "  - Removing unit files and scripts..."
@@ -95,6 +97,8 @@ if [ "$MODE" = "uninstall" ]; then
     sudo rm -f /etc/systemd/system/suspend-wifi-unload.service
     sudo rm -f /etc/systemd/system/resume-wifi-reload.service
     sudo rm -f /etc/systemd/system/fix-kbd-backlight.service
+    sudo rm -f /etc/systemd/system/suspend-amdgpu-unbind.service
+    sudo rm -f /etc/systemd/system/resume-amdgpu-bind.service
     sudo rm -f /usr/local/bin/fix-kbd-backlight.sh
     sudo rm -f /usr/lib/systemd/system-sleep/t2-resync
     sudo rm -f /usr/lib/systemd/system-sleep/90-t2-hibernate-test-brcmfmac.sh
@@ -201,24 +205,19 @@ if [ -d /boot/efi/EFI/refind ] || [ -f /boot/efi/EFI/refind/refind.conf ] || [ -
     echo -e "${YELLOW}Warning: rEFInd detected. Kernel parameters in GRUB may not be used.${NC}"
 fi
 
-# Detect WiFi PCI bus ID
-echo -e "\n${YELLOW}⚙${NC} Detecting Broadcom WiFi card..."
-WIFI_PCI=$(lspci -nn | grep -i "broadcom.*bcm43" | awk 'NR==1{print $1; exit}')
-
-if [ -z "$WIFI_PCI" ]; then
-    echo -e "${RED}Error: Could not find Broadcom WiFi card. This script is for T2 MacBooks only.${NC}"
-    exit 1
-fi
-
-WIFI_PCI_FULL="0000:${WIFI_PCI}"
-echo -e "${GREEN}Found WiFi at PCI bus: ${WIFI_PCI_FULL}${NC}\n"
-
 # Confirm with user
 read -p "Continue with installation? (y/n) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "Installation cancelled."
     exit 0
+fi
+
+# Detect AMD dGPU (vendor 0x1002 on VGA/3D/Display)
+HAS_AMDGPU=false
+if lspci -nn | grep -Eiq "(VGA|3D|Display).*1002"; then
+    HAS_AMDGPU=true
+    echo -e "${YELLOW}AMD dGPU detected - enabling dGPU suspend fix${NC}"
 fi
 
 # Remove prior systemd fixes
@@ -235,6 +234,8 @@ sudo rm -f /etc/systemd/system/suspend-wifi-unload.service
 sudo rm -f /etc/systemd/system/resume-wifi-reload.service
 sudo rm -f /etc/systemd/system/fix-kbd-backlight.service
 sudo rm -f /etc/systemd/system/suspend-fix-t2.service
+sudo rm -f /etc/systemd/system/suspend-amdgpu-unbind.service
+sudo rm -f /etc/systemd/system/resume-amdgpu-bind.service
 sudo rm -f /usr/lib/systemd/system-sleep/t2-resync
 sudo rm -f /usr/lib/systemd/system-sleep/90-t2-hibernate-test-brcmfmac.sh
 echo "  - Old unit files removed."
@@ -275,7 +276,7 @@ KBD_PATH="/sys/class/leds/:white:kbd_backlight/brightness"
 if [ -f "$KBD_PATH" ]; then
     echo 1000 > "$KBD_PATH" 2>/dev/null || true
 else
-    # Poll up to 10s before forcing a BCE reset to avoid login screen flutters
+    # Poll up to 10s before forcing a BCE reset
     for i in 1 2 3 4 5 6 7 8 9 10; do
         if [ -f "$KBD_PATH" ]; then
             echo 1000 > "$KBD_PATH" 2>/dev/null && exit 0
@@ -284,7 +285,7 @@ else
         sleep 1
     done
 
-    # Driver reset if path is still missing
+    # Additional apple-bce reset if path is still missing
     rmmod -f apple-bce 2>/dev/null || true
     modprobe apple-bce
     for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -312,24 +313,40 @@ User=root
 Type=oneshot
 # 1. Backlight off before suspend
 ExecStartPre=-/usr/bin/brightnessctl -sd :white:kbd_backlight set 0 -q
-# 2. Force-unload Bluetooth (avoids long resume timeouts)
-ExecStart=-/usr/sbin/rmmod -f hci_bcm4377
-# 3. Deactivate WiFi interface
+# 2. Deactivate WiFi interface
 ExecStart=-/usr/bin/nmcli radio wifi off
-# 4. Unload drivers (wcc first!)
+# 3. Unload WiFi plugin and driver
 ExecStart=-/usr/sbin/modprobe -r brcmfmac_wcc
 ExecStart=-/usr/sbin/modprobe -r brcmfmac
-# 5. Hard unbind of PCI-ID
-ExecStart=-/bin/sh -c 'echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/unbind'
-# 6. Apple BCE removal
+# 4. Apple BCE removal
 ExecStart=-/usr/sbin/rmmod -f apple-bce
-# 7. Remove PCI device completely from bus
-ExecStart=-/bin/sh -c 'echo 1 > /sys/bus/pci/devices/${WIFI_PCI_FULL}/remove'
 
 [Install]
 WantedBy=sleep.target
 EOF
 echo -e "${GREEN}Done${NC}"
+
+# Create AMD dGPU unbind service
+if [ "$HAS_AMDGPU" = true ]; then
+    echo -e "\n${YELLOW}⚙${NC} Creating AMD dGPU unbind service..."
+    sudo tee /etc/systemd/system/suspend-amdgpu-unbind.service > /dev/null << 'EOF'
+[Unit]
+Description=AMD dGPU Unbind Before Suspend
+Before=sleep.target
+After=suspend-wifi-unload.service
+StopWhenUnneeded=yes
+ConditionPathExists=/sys/bus/pci/drivers/amdgpu/unbind
+
+[Service]
+User=root
+Type=oneshot
+ExecStart=/bin/sh -c 'for dev in /sys/bus/pci/devices/*/vendor; do if [ "$(cat "$dev")" = "0x1002" ]; then d=$(dirname "$dev"); echo auto > "$d/power/control" 2>/dev/null || true; echo "$(basename "$d")" > /sys/bus/pci/drivers/amdgpu/unbind 2>/dev/null || true; fi; done'
+
+[Install]
+WantedBy=sleep.target
+EOF
+    echo -e "${GREEN}Done${NC}"
+fi
 
 # Create service that reloads WiFi after resume
 echo -e "\n${YELLOW}⚙${NC} Creating WiFi reload service..."
@@ -341,40 +358,43 @@ After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate
 [Service]
 User=root
 Type=oneshot
-# 1. Rescan PCI bus to find device again
-ExecStart=/bin/sh -c 'echo "[resume] STEP1 rescan" >&2; echo 1 > /sys/bus/pci/rescan'
-# 2. Wait for device to appear
-ExecStart=/bin/sleep 0.5
-# 3. Load BCE first
+# 1. Load BCE first
 ExecStart=/usr/sbin/modprobe apple-bce
-# 4. Wait for BCE to initialize
+# 2. Wait for BCE to initialize
 ExecStart=/bin/sleep 0.5
-# 5. Force PCI-Bind (guard; device may already be bound)
-ExecStart=-/bin/sh -c '\
-echo "[resume] STEP5 bind brcmfmac" >&2; \
-DEV="/sys/bus/pci/devices/${WIFI_PCI_FULL}"; \
-if [ -L "$DEV/driver" ] && readlink "$DEV/driver" | grep -q "/brcmfmac$"; then \
-  echo "[resume] STEP5 already bound to brcmfmac" >&2; \
-  exit 0; \
-fi; \
-echo "${WIFI_PCI_FULL}" > /sys/bus/pci/drivers/brcmfmac/bind'
-# 6. Load driver
+# 3. Load WiFi driver and plugin
 ExecStart=/usr/sbin/modprobe brcmfmac
-# 6b. Load WCC plugin (depends on brcmfmac)
 ExecStart=/usr/sbin/modprobe brcmfmac_wcc
-# 7. Wait for driver initialization
-ExecStart=/bin/sleep 1
-# 8. Activate WiFi again
-ExecStartPost=-/usr/bin/nmcli radio wifi on
-# 9. Reload Bluetooth
-ExecStartPost=-/usr/sbin/modprobe hci_bcm4377
-# 10. Restore keyboard backlight on resume
+# 4. Restore keyboard backlight on resume
 ExecStartPost=-/usr/local/bin/fix-kbd-backlight.sh
+# 6. Activate WiFi again
+ExecStartPost=-/usr/bin/nmcli radio wifi on
 
 [Install]
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 EOF
 echo -e "${GREEN}Done${NC}"
+
+# Create AMD dGPU bind service
+if [ "$HAS_AMDGPU" = true ]; then
+    echo -e "\n${YELLOW}⚙${NC} Creating AMD dGPU bind service..."
+    sudo tee /etc/systemd/system/resume-amdgpu-bind.service > /dev/null << 'EOF'
+[Unit]
+Description=AMD dGPU Bind After Resume
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+Before=resume-wifi-reload.service
+ConditionPathExists=/sys/bus/pci/drivers/amdgpu/bind
+
+[Service]
+User=root
+Type=oneshot
+ExecStart=/bin/sh -c 'for dev in /sys/bus/pci/devices/*/vendor; do if [ "$(cat "$dev")" = "0x1002" ]; then d=$(dirname "$dev"); echo "$(basename "$d")" > /sys/bus/pci/drivers/amdgpu/bind 2>/dev/null || true; echo on > "$d/power/control" 2>/dev/null || true; fi; done'
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+EOF
+    echo -e "${GREEN}Done${NC}"
+fi
 
 # Activate services
 echo -e "\n${YELLOW}⚙${NC} Activating services..."
@@ -382,6 +402,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable suspend-wifi-unload.service
 sudo systemctl enable resume-wifi-reload.service
 sudo systemctl enable fix-kbd-backlight.service 
+if [ "$HAS_AMDGPU" = true ]; then
+    sudo systemctl enable suspend-amdgpu-unbind.service
+    sudo systemctl enable resume-amdgpu-bind.service
+fi
 echo -e "${GREEN}Done${NC}"
 
 # Configure deep suspend mode based on distribution
@@ -539,13 +563,9 @@ fi
 
 # Summary
 echo -e "\n${GREEN}=== Installation Complete ===${NC}\n"
-echo "WiFi PCI Bus ID: ${WIFI_PCI_FULL}"
-echo "Distribution: $DISTRO_ID"
 echo ""
 echo -e "${YELLOW}IMPORTANT NOTES:${NC}"
-echo "1. You must reboot for changes to take effect"
-echo "2. Suspend by closing the lid! After resume, wait 3-5 seconds for WiFi and keyboard backlight to come back"
-echo "3. This is normal behavior and not a malfunction"
+echo "Reminder: Suspend/Resume takes longer than on MacOS. This is normal behavior and not a malfunction"
 echo ""
 read -p "Reboot now? (y/n) " -n 1 -r
 echo
