@@ -1,6 +1,6 @@
 # T2Linux MacBook Suspend Fix
 
-This script configures your system to properly suspend and resume by managing the Broadcom WiFi driver, Apple BCE keyboard backlight driver and AMD dGPU driver.
+This script configures your system to properly suspend and resume by managing the Broadcom WiFi driver and Apple BCE keyboard backlight driver.
 It creates systemd services to handle driver unloading before suspend and reloading after resume in correct sequence.
 Keyboard backlight not working on boot is also taken care of.
 
@@ -14,7 +14,6 @@ Please open a GitHub issue even if it's working to help make this fix universal.
 - Some systems don't work with the script yet. It's unclear if this is related to the specific hardware or distro.
 - There is an uninstall option when running the script. So if it doesn't work for you, just reboot and run it again. It will restore your previous settings and files.
 - Note that using powertop --auto-tune or any related script enabling/forcing ASPM will block "optimized" PCI devices from transitioning to D3 power state. Or in other words: If you want to enjoy working suspend, remove such scripts.
-- On MacBooks with AMD dGPU, an additional unbind/bind workaround is enabled automatically to avoid amdgpu resume issues (experimental).
 
 
 ## Installation
@@ -44,7 +43,7 @@ The script performs the following actions:
 2. Creates systemd services
 3. Backups, disables or removes conflicting services (thermald/override.conf)
 4. Sets ASPM to off if needed
-5. Optionally enables AMD dGPU unbind/bind services on systems with AMD dGPU
+5. Installs libnotify (if notify-send is missing) to show desktop notifications for failed resume steps
 
 ### Systemd Services
 
@@ -57,20 +56,16 @@ Runs before suspend to aggressively unload WiFi and BCE drivers:
 **`/etc/systemd/system/resume-wifi-reload.service`**  
 Runs after resume to restore WiFi and BCE:
 - Loads apple-bce module
+- Waits up to 15s for apple-bce to appear; if it doesn't, resume-wifi-reload aborts and logs a message (desktop notification when notify-send is available)
 - Loads brcmfmac module
 - Reactivates WiFi interface
+- After 5 seconds, checks if brcmfmac is bound; if not, reloads brcmfmac
 
 **`/etc/systemd/system/fix-kbd-backlight.service`**  
 Runs on boot and after resume to restore keyboard backlight:
 - Checks if keyboard backlight path exists
 - Reloads apple-bce driver if needed
 - Sets keyboard backlight brightness
-
-**`/etc/systemd/system/suspend-amdgpu-unbind.service`**  
-Unbinds AMD dGPU before suspend to avoid amdgpu resume issues.
-
-**`/etc/systemd/system/resume-amdgpu-bind.service`**  
-Binds AMD dGPU after resume.
 
 ### Helper Script
 
