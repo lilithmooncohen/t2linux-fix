@@ -4,9 +4,9 @@ This script configures your system to properly suspend and resume by managing th
 It creates systemd services to handle driver unloading before suspend and reloading after resume in correct sequence.
 Keyboard backlight not working on boot is also taken care of.
 
-### We need Feedback to confirm it's working
+### For now the script is final
 
-Please open a GitHub issue even if it's working to help make this fix universal.
+We can't continue developing this script any further. It showed that people with the same hardware and same distro have varying results. It leads to the conclusion that we are either dealing with different hardware or firmware revisions. This is impossible to handle. Please try the script. If it's working - yay! If not, use the uninstaller and call it a day until T2Linux devs come up with a better solution.
 
 ## Important Notes / Known Issues
 
