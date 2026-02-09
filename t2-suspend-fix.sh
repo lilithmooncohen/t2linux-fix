@@ -10,7 +10,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
-VERSION="1.3.0"
+VERSION="1.4.0"
 
 BACKUP_DIR="/etc/t2-suspend-fix"
 THERMALD_STATE_FILE="${BACKUP_DIR}/thermald_enabled"
@@ -18,6 +18,25 @@ GRUB_BACKUP="${BACKUP_DIR}/grub.bak"
 OVERRIDE_BACKUP="${BACKUP_DIR}/override.conf.bak"
 GRUBBY_STATE_FILE="${BACKUP_DIR}/grubby_state"
 WAKEUP_BACKUP="${BACKUP_DIR}/acpi_wakeup.bak"
+
+ensure_libnotify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        echo -e "${GREEN}libnotify already installed (notify-send found)${NC}"
+        return 0
+    fi
+    echo -e "${YELLOW}Installing libnotify (notify-send not found)...${NC}"
+    if command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y libnotify
+    elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get update
+        sudo apt-get install -y libnotify-bin
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -Sy --noconfirm libnotify
+    else
+        echo -e "${YELLOW}Warning: No supported package manager found. Please install libnotify manually.${NC}"
+        return 1
+    fi
+}
 
 capture_acpi_wakeup_state() {
     sudo mkdir -p "$BACKUP_DIR"
@@ -82,7 +101,7 @@ fi
 if [ "$MODE" = "uninstall" ]; then
     echo -e "${YELLOW}⚙${NC} Uninstalling and restoring backups..."
 
-    # Disable and remove services
+    # Disable and remove (previous) fixes
     echo "  - Disabling services..."
     sudo systemctl disable suspend-fix-t2.service 2>/dev/null || true
     sudo systemctl disable suspend-wifi-unload.service 2>/dev/null || true
@@ -99,6 +118,8 @@ if [ "$MODE" = "uninstall" ]; then
     sudo rm -f /etc/systemd/system/fix-kbd-backlight.service
     sudo rm -f /etc/systemd/system/suspend-amdgpu-unbind.service
     sudo rm -f /etc/systemd/system/resume-amdgpu-bind.service
+    sudo rm -f /usr/local/bin/t2-wait-apple-bce.sh
+    sudo rm -f /usr/local/bin/t2-wait-brcmfmac.sh
     sudo rm -f /usr/local/bin/fix-kbd-backlight.sh
     sudo rm -f /usr/lib/systemd/system-sleep/t2-resync
     sudo rm -f /usr/lib/systemd/system-sleep/90-t2-hibernate-test-brcmfmac.sh
@@ -213,12 +234,8 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# Detect AMD dGPU (vendor 0x1002 on VGA/3D/Display)
-HAS_AMDGPU=false
-if lspci -nn | grep -Eiq "(VGA|3D|Display).*1002"; then
-    HAS_AMDGPU=true
-    echo -e "${YELLOW}AMD dGPU detected - enabling dGPU suspend fix${NC}"
-fi
+# Ensure libnotify is available for desktop notifications
+ensure_libnotify || true
 
 # Remove prior systemd fixes
 echo -e "\n${YELLOW}⚙${NC} Removing prior systemd fixes (if any)..."
@@ -234,8 +251,6 @@ sudo rm -f /etc/systemd/system/suspend-wifi-unload.service
 sudo rm -f /etc/systemd/system/resume-wifi-reload.service
 sudo rm -f /etc/systemd/system/fix-kbd-backlight.service
 sudo rm -f /etc/systemd/system/suspend-fix-t2.service
-sudo rm -f /etc/systemd/system/suspend-amdgpu-unbind.service
-sudo rm -f /etc/systemd/system/resume-amdgpu-bind.service
 sudo rm -f /usr/lib/systemd/system-sleep/t2-resync
 sudo rm -f /usr/lib/systemd/system-sleep/90-t2-hibernate-test-brcmfmac.sh
 echo "  - Old unit files removed."
@@ -300,11 +315,32 @@ EOF
 sudo chmod +x /usr/local/bin/fix-kbd-backlight.sh
 echo -e "${GREEN}Done${NC}"
 
+# Create helper wait scripts
+echo -e "\n${YELLOW}⚙${NC} Creating helper wait scripts..."
+sudo tee /usr/local/bin/t2-wait-apple-bce.sh > /dev/null << 'EOF'
+#!/bin/sh
+msg="apple-bce did not start within 15s - resume aborted"
+for i in $(seq 1 30); do
+    ls /sys/bus/pci/drivers/apple-bce/*:* >/dev/null 2>&1 && exit 0
+    sleep 0.5
+done
+logger -t t2-suspend-fix "$msg"
+if command -v notify-send >/dev/null 2>&1; then
+    uid=$(loginctl list-sessions --no-legend | awk '{print $3}' | head -n1)
+    if [ -n "$uid" ] && [ -S "/run/user/$uid/bus" ]; then
+        XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" sudo -u "#$uid" notify-send "Suspend Fix" "$msg"
+    fi
+fi
+exit 1
+EOF
+sudo chmod +x /usr/local/bin/t2-wait-apple-bce.sh
+echo -e "${GREEN}Done${NC}"
+
 # Create WiFi unload service
 echo -e "\n${YELLOW}⚙${NC} Creating WiFi unload service..."
 sudo tee /etc/systemd/system/suspend-wifi-unload.service > /dev/null << EOF
 [Unit]
-Description=Aggressive WiFi Unload Before Suspend
+Description=WiFi Unload Before Suspend
 Before=sleep.target
 StopWhenUnneeded=yes
 
@@ -326,28 +362,6 @@ WantedBy=sleep.target
 EOF
 echo -e "${GREEN}Done${NC}"
 
-# Create AMD dGPU unbind service
-if [ "$HAS_AMDGPU" = true ]; then
-    echo -e "\n${YELLOW}⚙${NC} Creating AMD dGPU unbind service..."
-    sudo tee /etc/systemd/system/suspend-amdgpu-unbind.service > /dev/null << 'EOF'
-[Unit]
-Description=AMD dGPU Unbind Before Suspend
-Before=sleep.target
-After=suspend-wifi-unload.service
-StopWhenUnneeded=yes
-ConditionPathExists=/sys/bus/pci/drivers/amdgpu/unbind
-
-[Service]
-User=root
-Type=oneshot
-ExecStart=/bin/sh -c 'for dev in /sys/bus/pci/devices/*/vendor; do if [ "$(cat "$dev")" = "0x1002" ]; then d=$(dirname "$dev"); echo auto > "$d/power/control" 2>/dev/null || true; echo "$(basename "$d")" > /sys/bus/pci/drivers/amdgpu/unbind 2>/dev/null || true; fi; done'
-
-[Install]
-WantedBy=sleep.target
-EOF
-    echo -e "${GREEN}Done${NC}"
-fi
-
 # Create service that reloads WiFi after resume
 echo -e "\n${YELLOW}⚙${NC} Creating WiFi reload service..."
 sudo tee /etc/systemd/system/resume-wifi-reload.service > /dev/null << EOF
@@ -360,41 +374,22 @@ User=root
 Type=oneshot
 # 1. Load BCE first
 ExecStart=/usr/sbin/modprobe apple-bce
-# 2. Wait for BCE to initialize
-ExecStart=/bin/sleep 0.5
+# 2. Wait for BCE to initialize (up to 15s, then fail with message)
+ExecStart=/usr/local/bin/t2-wait-apple-bce.sh
 # 3. Load WiFi driver and plugin
 ExecStart=/usr/sbin/modprobe brcmfmac
 ExecStart=/usr/sbin/modprobe brcmfmac_wcc
 # 4. Restore keyboard backlight on resume
 ExecStartPost=-/usr/local/bin/fix-kbd-backlight.sh
-# 6. Activate WiFi again
+# 5. Activate WiFi again
 ExecStartPost=-/usr/bin/nmcli radio wifi on
+# 6. Final WiFi check (after 5s) and retry modprobe if needed
+ExecStartPost=/bin/sh -c 'sleep 5; if ! ls /sys/bus/pci/drivers/brcmfmac/*:* >/dev/null 2>&1; then modprobe -r brcmfmac 2>/dev/null || true; modprobe brcmfmac 2>/dev/null || true; modprobe brcmfmac_wcc 2>/dev/null || true; fi'
 
 [Install]
 WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
 EOF
 echo -e "${GREEN}Done${NC}"
-
-# Create AMD dGPU bind service
-if [ "$HAS_AMDGPU" = true ]; then
-    echo -e "\n${YELLOW}⚙${NC} Creating AMD dGPU bind service..."
-    sudo tee /etc/systemd/system/resume-amdgpu-bind.service > /dev/null << 'EOF'
-[Unit]
-Description=AMD dGPU Bind After Resume
-After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
-Before=resume-wifi-reload.service
-ConditionPathExists=/sys/bus/pci/drivers/amdgpu/bind
-
-[Service]
-User=root
-Type=oneshot
-ExecStart=/bin/sh -c 'for dev in /sys/bus/pci/devices/*/vendor; do if [ "$(cat "$dev")" = "0x1002" ]; then d=$(dirname "$dev"); echo "$(basename "$d")" > /sys/bus/pci/drivers/amdgpu/bind 2>/dev/null || true; echo on > "$d/power/control" 2>/dev/null || true; fi; done'
-
-[Install]
-WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
-EOF
-    echo -e "${GREEN}Done${NC}"
-fi
 
 # Activate services
 echo -e "\n${YELLOW}⚙${NC} Activating services..."
@@ -402,10 +397,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable suspend-wifi-unload.service
 sudo systemctl enable resume-wifi-reload.service
 sudo systemctl enable fix-kbd-backlight.service 
-if [ "$HAS_AMDGPU" = true ]; then
-    sudo systemctl enable suspend-amdgpu-unbind.service
-    sudo systemctl enable resume-amdgpu-bind.service
-fi
 echo -e "${GREEN}Done${NC}"
 
 # Configure deep suspend mode based on distribution
