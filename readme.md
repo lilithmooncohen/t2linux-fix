@@ -6,14 +6,15 @@ Keyboard backlight not working on boot is also taken care of.
 
 ### For now the script is final
 
-We can't continue developing this script any further. It showed that people with the same hardware and same distro have varying results. It leads to the conclusion that we are either dealing with different hardware or firmware revisions. This is impossible to handle. Please try the script. If it's working - yay! If not, use the uninstaller and call it a day until T2Linux devs come up with a better solution.
+We can't continue developing this script. It showed that people with the same hardware and same distro have varying results. It leads to the conclusion that we are either dealing with different hardware or firmware revisions. This is impossible to handle. Please try the script. If it's working - yay! If not, use the uninstaller and call it a day until T2Linux devs come up with a better solution.
 
 ## Important Notes / Known Issues
 
 - The system needs more time to resume than you're used to from MacOS. The script takes between 1.5 to 3 seconds to run through. The longest waiting times is userland re-initializing.
-- Some systems don't work with the script yet. It's unclear if this is related to the specific hardware or distro.
-- There is an uninstall option when running the script. So if it doesn't work for you, just reboot and run it again. It will restore your previous settings and files.
+- Some systems don't work with the script. It's unclear if this is related to the specific hardware, firmware or distro.
+- There is an uninstall option when running the script. If the script doesn't work for you, just reboot and run it again. It will restore your previous settings and files.
 - Note that using powertop --auto-tune or any related script enabling/forcing ASPM will block "optimized" PCI devices from transitioning to D3 power state. Or in other words: If you want to enjoy working suspend, remove such scripts.
+- The script uses deep sleep. Hibernate and hybrid sleep will also work, but require further manual steps like creating a swap partition.
 
 
 ## Installation
@@ -33,7 +34,9 @@ chmod +x t2-suspend-fix.sh
 ./t2-suspend-fix.sh
 ```
 
-4. Reboot when prompted.
+4. Choose install or uninstall
+
+5. Check the prompts and Reboot
 
 ## Changes on your system
 
