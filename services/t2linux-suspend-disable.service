@@ -1,0 +1,12 @@
+[Unit]
+Description=t2linux disable Apple modules before suspend
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+User=root
+Type=oneshot
+ExecStart=-/usr/local/bin/t2linux-disable-all.sh
+
+[Install]
+WantedBy=sleep.target

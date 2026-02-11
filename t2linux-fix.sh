@@ -12,12 +12,12 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 VERSION="1.4.0"
 
-BACKUP_DIR="/etc/t2-suspend-fix"
-THERMALD_STATE_FILE="${BACKUP_DIR}/thermald_enabled"
-GRUB_BACKUP="${BACKUP_DIR}/grub.bak"
-OVERRIDE_BACKUP="${BACKUP_DIR}/override.conf.bak"
-GRUBBY_STATE_FILE="${BACKUP_DIR}/grubby_state"
-WAKEUP_BACKUP="${BACKUP_DIR}/acpi_wakeup.bak"
+T2LINUX_CONF_DIR="/etc/t2linux"
+THERMALD_STATE_FILE="${T2LINUX_CONF_DIR}/thermald_enabled"
+GRUB_BACKUP="${T2LINUX_CONF_DIR}/grub.bak"
+OVERRIDE_BACKUP="${T2LINUX_CONF_DIR}/override.conf.bak"
+GRUBBY_STATE_FILE="${T2LINUX_CONF_DIR}/grubby_state"
+WAKEUP_BACKUP="${T2LINUX_CONF_DIR}/acpi_wakeup.bak"
 
 ensure_libnotify() {
     if command -v notify-send >/dev/null 2>&1; then
@@ -39,7 +39,7 @@ ensure_libnotify() {
 }
 
 capture_acpi_wakeup_state() {
-    sudo mkdir -p "$BACKUP_DIR"
+    sudo mkdir -p "$T2LINUX_CONF_DIR"
     sudo sh -c "cat /proc/acpi/wakeup > '$WAKEUP_BACKUP'"
 }
 
@@ -68,7 +68,7 @@ restore_acpi_wakeup_state() {
 echo -e "${GREEN}=== T2 MacBook Suspend Fix Installer v${VERSION} ===${NC}\n"
 
 # Check if running as root
-if [ "$EUID" -eq 0 ]; then 
+if [ "$EUID" -eq 0 ]; then
     echo -e "${RED}Error: Do not run this script as root. It will use sudo when needed.${NC}"
     exit 1
 fi
@@ -103,6 +103,18 @@ if [ "$MODE" = "uninstall" ]; then
 
     # Disable and remove (previous) fixes
     echo "  - Disabling services..."
+    # Disable services from services/ directory
+    for service_file in services/*.service; do
+        if [ -f "$service_file" ]; then
+            service_name=$(basename "$service_file")
+            sudo systemctl disable "$service_name" 2>/dev/null || true
+        fi
+    done
+    # Detect and disable any t2linux-*.service from systemd
+    for service in $(systemctl list-unit-files 't2linux-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+        sudo systemctl disable "$service" 2>/dev/null || true
+    done
+    # Also disable old services from previous versions
     sudo systemctl disable suspend-fix-t2.service 2>/dev/null || true
     sudo systemctl disable suspend-wifi-unload.service 2>/dev/null || true
     sudo systemctl disable resume-wifi-reload.service 2>/dev/null || true
@@ -112,6 +124,9 @@ if [ "$MODE" = "uninstall" ]; then
     echo "  - Services disabled."
 
     echo "  - Removing unit files and scripts..."
+    sudo rm -f /etc/systemd/system/t2linux-*.service
+    sudo rm -f /usr/local/bin/t2linux-*.sh
+    echo "  - Removing old unit files and scripts from previous versions..."
     sudo rm -f /etc/systemd/system/suspend-fix-t2.service
     sudo rm -f /etc/systemd/system/suspend-wifi-unload.service
     sudo rm -f /etc/systemd/system/resume-wifi-reload.service
@@ -240,6 +255,11 @@ ensure_libnotify || true
 # Remove prior systemd fixes
 echo -e "\n${YELLOW}⚙${NC} Removing prior systemd fixes (if any)..."
 echo "  - Disabling old services..."
+# Detect and disable any t2linux-*.service from systemd
+for service in $(systemctl list-unit-files 't2linux-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+    sudo systemctl disable "$service" 2>/dev/null || true
+done
+# Also disable old services from previous versions
 sudo systemctl disable suspend-fix-t2.service 2>/dev/null || true
 sudo systemctl disable suspend-wifi-unload.service 2>/dev/null || true
 sudo systemctl disable resume-wifi-reload.service 2>/dev/null || true
@@ -262,141 +282,23 @@ enable_all_s3_wakeup
 sudo systemctl daemon-reload
 echo -e "${GREEN}Done${NC}"
 
-# Create systemd service that calls a script to reload the KBD backlight on boot
-echo -e "\n${YELLOW}⚙${NC} Creating KBD reload service..."
-sudo tee /etc/systemd/system/fix-kbd-backlight.service > /dev/null << 'EOF'
-[Unit]
-Description=Fix Apple BCE Keyboard Backlight
-After=multi-user.target
-
-[Service]
-User=root
-Type=oneshot
-ExecStart=/usr/bin/bash /usr/local/bin/fix-kbd-backlight.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-echo -e "${GREEN}Done${NC}"
-
-# Create script that reloads the keyboard backlight when systemd calls it
+# Create scripts
 echo -e "\n${YELLOW}⚙${NC} Creating keyboard backlight script..."
-sudo tee /usr/local/bin/fix-kbd-backlight.sh > /dev/null << 'EOF'
-#!/bin/sh
-# Keyboard backlight fix for apple-bce after boot
-
-KBD_PATH="/sys/class/leds/:white:kbd_backlight/brightness"
-
-if [ -f "$KBD_PATH" ]; then
-    echo 1000 > "$KBD_PATH" 2>/dev/null || true
-else
-    # Poll up to 10s before forcing a BCE reset
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-        if [ -f "$KBD_PATH" ]; then
-            echo 1000 > "$KBD_PATH" 2>/dev/null && exit 0
-        fi
-        command -v brightnessctl >/dev/null 2>&1 && brightnessctl -rd :white:kbd_backlight >/dev/null 2>&1 && exit 0
-        sleep 1
-    done
-
-    # Additional apple-bce reset if path is still missing
-    rmmod -f apple-bce 2>/dev/null || true
-    modprobe apple-bce
-    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-        if [ -f "$KBD_PATH" ]; then
-            echo 1000 > "$KBD_PATH" 2>/dev/null && exit 0
-        fi
-        command -v brightnessctl >/dev/null 2>&1 && brightnessctl -rd :white:kbd_backlight >/dev/null 2>&1 && exit 0
-        sleep 0.2
-    done
-fi
-EOF
-sudo chmod +x /usr/local/bin/fix-kbd-backlight.sh
+sudo cp scripts/t2linux-*.sh /usr/local/bin/
 echo -e "${GREEN}Done${NC}"
 
-# Create helper wait scripts
-echo -e "\n${YELLOW}⚙${NC} Creating helper wait scripts..."
-sudo tee /usr/local/bin/t2-wait-apple-bce.sh > /dev/null << 'EOF'
-#!/bin/sh
-msg="apple-bce did not start within 15s - resume aborted"
-for i in $(seq 1 30); do
-    ls /sys/bus/pci/drivers/apple-bce/*:* >/dev/null 2>&1 && exit 0
-    sleep 0.5
-done
-logger -t t2-suspend-fix "$msg"
-if command -v notify-send >/dev/null 2>&1; then
-    uid=$(loginctl list-sessions --no-legend | awk '{print $3}' | head -n1)
-    if [ -n "$uid" ] && [ -S "/run/user/$uid/bus" ]; then
-        XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" sudo -u "#$uid" notify-send "Suspend Fix" "$msg"
-    fi
-fi
-exit 1
-EOF
-sudo chmod +x /usr/local/bin/t2-wait-apple-bce.sh
-echo -e "${GREEN}Done${NC}"
-
-# Create WiFi unload service
-echo -e "\n${YELLOW}⚙${NC} Creating WiFi unload service..."
-sudo tee /etc/systemd/system/suspend-wifi-unload.service > /dev/null << EOF
-[Unit]
-Description=WiFi Unload Before Suspend
-Before=sleep.target
-StopWhenUnneeded=yes
-
-[Service]
-User=root
-Type=oneshot
-# 1. Backlight off before suspend
-ExecStartPre=-/usr/bin/brightnessctl -sd :white:kbd_backlight set 0 -q
-# 2. Deactivate WiFi interface
-ExecStart=-/usr/bin/nmcli radio wifi off
-# 3. Unload WiFi plugin and driver
-ExecStart=-/usr/sbin/modprobe -r brcmfmac_wcc
-ExecStart=-/usr/sbin/modprobe -r brcmfmac
-# 4. Apple BCE removal
-ExecStart=-/usr/sbin/rmmod -f apple-bce
-
-[Install]
-WantedBy=sleep.target
-EOF
-echo -e "${GREEN}Done${NC}"
-
-# Create service that reloads WiFi after resume
-echo -e "\n${YELLOW}⚙${NC} Creating WiFi reload service..."
-sudo tee /etc/systemd/system/resume-wifi-reload.service > /dev/null << EOF
-[Unit]
-Description=WiFi and BCE Reload After Resume
-After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
-
-[Service]
-User=root
-Type=oneshot
-# 1. Load BCE first
-ExecStart=/usr/sbin/modprobe apple-bce
-# 2. Wait for BCE to initialize (up to 15s, then fail with message)
-ExecStart=/usr/local/bin/t2-wait-apple-bce.sh
-# 3. Load WiFi driver and plugin
-ExecStart=/usr/sbin/modprobe brcmfmac
-ExecStart=/usr/sbin/modprobe brcmfmac_wcc
-# 4. Restore keyboard backlight on resume
-ExecStartPost=-/usr/local/bin/fix-kbd-backlight.sh
-# 5. Activate WiFi again
-ExecStartPost=-/usr/bin/nmcli radio wifi on
-# 6. Final WiFi check (after 5s) and retry modprobe if needed
-ExecStartPost=/bin/sh -c 'sleep 5; if ! ls /sys/bus/pci/drivers/brcmfmac/*:* >/dev/null 2>&1; then modprobe -r brcmfmac 2>/dev/null || true; modprobe brcmfmac 2>/dev/null || true; modprobe brcmfmac_wcc 2>/dev/null || true; fi'
-
-[Install]
-WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
-EOF
+# Create systemd services
+echo -e "\n${YELLOW}⚙${NC} Creating services..."
+sudo cp services/t2linux-*.service /etc/systemd/system/
 echo -e "${GREEN}Done${NC}"
 
 # Activate services
 echo -e "\n${YELLOW}⚙${NC} Activating services..."
 sudo systemctl daemon-reload
-sudo systemctl enable suspend-wifi-unload.service
-sudo systemctl enable resume-wifi-reload.service
-sudo systemctl enable fix-kbd-backlight.service 
+# Detect and enable any t2linux-*.service from systemd
+for service in $(systemctl list-unit-files 't2linux-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+    sudo systemctl enable "$service" 2>/dev/null || true
+done
 echo -e "${GREEN}Done${NC}"
 
 # Configure deep suspend mode based on distribution
@@ -407,7 +309,7 @@ if [ "$USE_GRUBBY" = true ]; then
     if sudo grubby --info=ALL | grep -q "mem_sleep_default=deep"; then
         echo -e "${GREEN}mem_sleep_default=deep already configured${NC}"
     else
-        sudo mkdir -p "$BACKUP_DIR"
+        sudo mkdir -p "$T2LINUX_CONF_DIR"
         sudo grubby --update-kernel=ALL --args="mem_sleep_default=deep"
         echo "mem_sleep_added=1" | sudo tee -a "$GRUBBY_STATE_FILE" > /dev/null
         echo -e "${GREEN}Done (using grubby)${NC}"
@@ -415,11 +317,11 @@ if [ "$USE_GRUBBY" = true ]; then
 elif [ "$USE_GRUB_MKCONFIG" = true ] || [ "$USE_GRUB_MKCONFIG_ARCH" = true ]; then
     # Debian/Ubuntu/Arch using GRUB
     GRUB_CONFIG="/etc/default/grub"
-    
+
     if [ -f "$GRUB_CONFIG" ]; then
         # Backup GRUB config once
         if [ ! -f "$GRUB_BACKUP" ]; then
-            sudo mkdir -p "$BACKUP_DIR"
+            sudo mkdir -p "$T2LINUX_CONF_DIR"
             sudo cp "$GRUB_CONFIG" "$GRUB_BACKUP"
             echo "  - Backed up GRUB config to $GRUB_BACKUP"
         fi
@@ -471,12 +373,12 @@ fi
 echo -e "\n${YELLOW}⚙${NC} Checking for thermald..."
 if systemctl is-enabled thermald &>/dev/null; then
     echo "  - Disabling thermald..."
-    sudo mkdir -p "$BACKUP_DIR"
+    sudo mkdir -p "$T2LINUX_CONF_DIR"
     echo "enabled=1" | sudo tee "$THERMALD_STATE_FILE" > /dev/null
     sudo systemctl disable --now thermald
     echo -e "${GREEN}Done${NC}"
 else
-    sudo mkdir -p "$BACKUP_DIR"
+    sudo mkdir -p "$T2LINUX_CONF_DIR"
     echo "enabled=0" | sudo tee "$THERMALD_STATE_FILE" > /dev/null
     echo -e "${GREEN}thermald not found or not enabled${NC}"
 fi
@@ -489,7 +391,7 @@ if [ "$USE_GRUBBY" = true ]; then
         echo -e "${GREEN}pcie_aspm already off${NC}"
     else
         echo "  - Setting pcie_aspm=off (removing other values)..."
-        sudo mkdir -p "$BACKUP_DIR"
+        sudo mkdir -p "$T2LINUX_CONF_DIR"
         sudo grubby --update-kernel=ALL --remove-args="pcie_aspm=default pcie_aspm=force" --args="pcie_aspm=off"
         echo "pcie_aspm_was_off=0" | sudo tee -a "$GRUBBY_STATE_FILE" > /dev/null
         echo -e "${GREEN}Done${NC}"
@@ -499,7 +401,7 @@ elif [ "$USE_GRUB_MKCONFIG" = true ] || [ "$USE_GRUB_MKCONFIG_ARCH" = true ]; th
     if [ -f "$GRUB_CONFIG" ]; then
         # Backup GRUB config once (if not already)
         if [ ! -f "$GRUB_BACKUP" ]; then
-            sudo mkdir -p "$BACKUP_DIR"
+            sudo mkdir -p "$T2LINUX_CONF_DIR"
             sudo cp "$GRUB_CONFIG" "$GRUB_BACKUP"
             echo "  - Backed up GRUB config to $GRUB_BACKUP"
         fi
@@ -535,13 +437,24 @@ elif [ "$USE_GRUB_MKCONFIG" = true ] || [ "$USE_GRUB_MKCONFIG_ARCH" = true ]; th
     fi
 fi
 
+# rEFInd note
+if [ "$USE_REFIND" = true ]; then
+    echo -e "\n${YELLOW}⚠ rEFInd detected:${NC}"
+    echo "If you boot via rEFInd, kernel parameters from GRUB may be ignored."
+    echo "Please add pcie_aspm=off to your rEFInd kernel options."
+    echo "Common locations:"
+    echo "  - /boot/refind_linux.conf"
+    echo "  - /boot/efi/EFI/refind/refind.conf"
+    echo ""
+fi
+
 # Remove override.conf
 echo -e "\n${YELLOW}⚙${NC} Checking for override.conf..."
 if [ -f /etc/systemd/system/systemd-suspend.service.d/override.conf ]; then
     echo "  - Removing systemd-suspend override.conf..."
     # Backup override.conf once
     if [ ! -f "$OVERRIDE_BACKUP" ]; then
-        sudo mkdir -p "$BACKUP_DIR"
+        sudo mkdir -p "$T2LINUX_CONF_DIR"
         sudo cp /etc/systemd/system/systemd-suspend.service.d/override.conf "$OVERRIDE_BACKUP"
         echo "  - Backed up override.conf to $OVERRIDE_BACKUP"
     fi

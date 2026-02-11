@@ -9,7 +9,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-LOGFILE="/tmp/t2-suspend-debug-$(date +%Y%m%d-%H%M%S).log"
+LOGFILE="/tmp/t2linux-fix-debug-$(date +%Y%m%d-%H%M%S).log"
 
 echo -e "${GREEN}=== T2 MacBook Suspend Debug Helper ===${NC}\n"
 echo "This script will collect diagnostic information."
@@ -72,22 +72,18 @@ fi
 echo ""
 
 echo "=== Systemd Services Status ==="
-for service in suspend-wifi-unload resume-wifi-reload fix-kbd-backlight; do
-    echo "--- ${service}.service ---"
-    systemctl status ${service}.service --no-pager 2>&1 || echo "Service not found"
-    echo ""
+for service in $(systemctl list-unit-files 't2linux-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+    systemctl status ${service} --no-pager 2>&1 || echo "Service not found"
+echo ""
 done
 
-echo "=== Recent Journal Entries (suspend-wifi-unload) ==="
-journalctl -u suspend-wifi-unload.service -n 50 --no-pager
+echo "=== Recent Journal Entries ==="
 echo ""
-
-echo "=== Recent Journal Entries (resume-wifi-reload) ==="
-journalctl -u resume-wifi-reload.service -n 50 --no-pager
+echo "=== $service ==="
+for service in $(systemctl list-unit-files 't2linux-*.service' --no-legend 2>/dev/null | awk '{print $1}'); do
+    journalctl -u "$service" -n 50 --no-pager
 echo ""
-
-echo "=== Recent Journal Entries (fix-kbd-backlight) ==="
-journalctl -u fix-kbd-backlight.service -n 50 --no-pager
+done
 echo ""
 
 echo "=== dmesg: apple-bce (last 50 lines) ==="

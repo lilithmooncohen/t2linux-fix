@@ -1,0 +1,11 @@
+[Unit]
+Description=t2linux enable Apple modules after resume
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+
+[Service]
+User=root
+Type=oneshot
+ExecStart=/usr/local/bin/t2linux-enable-all.sh
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=t2linux enable Apple keyboard backlight
+After=multi-user.target
+
+[Service]
+User=root
+Type=oneshot
+ExecStart=/usr/bin/bash /usr/local/bin/t2linux-enable-kbd-backlight.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
