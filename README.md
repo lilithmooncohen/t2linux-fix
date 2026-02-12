@@ -25,7 +25,7 @@ This is mostly configured for my specific usage but it may help others. Feel fre
 git clone https://github.com/lilithmooncohen/t2linux-fix && cd t2linux-fix
 ```
 
-2. Make any changes relevant to you to the scripts (you may need to disable the brcmfmac_wcc and brcmfmac steps for instance)
+2. Make any changes relevant to you to the scripts (you may need to enable the brcmfmac_wcc and brcmfmac steps for instance in `scripts/t2linux-disable-all.sh`)
 
 3. Run the installer:
 ```bash
