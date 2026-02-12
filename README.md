@@ -106,9 +106,9 @@ Polls for up to 30 seconds to verify apple-bce driver has bound to a PCI device.
 
 The script also modifies the following system settings:
 
-- Sets `mem_sleep_default=deep` kernel parameter via grubby
+- Sets `mem_sleep_default=deep pcie_aspm=off` kernel parameter via grubby
+  - Will need to set manually if not on grub (e.g. in `/boot/refind_linux.conf`
 - Disables thermald service if present
-- Sets `pcie_aspm=off`
 - Backups and removes systemd-suspend override.conf if present
 
 
