@@ -2,19 +2,13 @@
 
 set -e
 
-T2LINUX_CONF_DIR="/etc/t2linux"
 T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_PATH="/sys/class/leds/:white:kbd_backlight/brightness"
-T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_BACKUP_PATH="${T2LINUX_CONF_DIR}/kbd_backlight_brightness"
 
 # Function to set keyboard backlight brightness
 set_brightness() {
     [ ! -f "${T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_PATH}" ] && return 1
 
-    if [ -f "${T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_BACKUP_PATH}" ]; then
-        cat "${T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_BACKUP_PATH}" > "${T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_PATH}" 2>/dev/null || true
-    else
-        echo 1000 > "${T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_PATH}" 2>/dev/null
-    fi
+    echo 2932 > "${T2LINUX_KBD_BACKLIGHT_BRIGHTNESS_PATH}" 2>/dev/null
     return 0
 }
 

@@ -90,12 +90,12 @@ Restores drivers after resume by:
 Performs a complete driver restart by running disable-all followed by enable-all. Useful for manual troubleshooting when drivers get into a bad state.
 
 **`/usr/local/bin/t2linux-disable-kbd-backlight.sh`**
-Backs up current keyboard backlight brightness to `/etc/t2linux/kbd_backlight_brightness` and sets brightness to 0 before suspend.
+Sets keyboard backlight brightness to 0 before suspend.
 
 **`/usr/local/bin/t2linux-enable-kbd-backlight.sh`**
 Restores keyboard backlight after resume by:
 - Waiting for apple-bce driver to be available
-- Restoring brightness from backup or setting to 1000 (default)
+- Setting to 2932 (20%)
 - Polling for up to 15s for brightness path
 - Forcefully resetting apple-bce driver if brightness path remains unavailable
 
